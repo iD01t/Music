@@ -1,0 +1,7 @@
+FFmpeg Cookbook — 1200 Example Lines
+0001: ffmpeg -i in1.wav -af "highpass=f=90,lowpass=f=15500,dynaudnorm=f=1.5:p=0.9" -c:a pcm_s16le out1.wav
+0002: ffmpeg -i in2.wav -af "highpass=f=100,lowpass=f=15000,dynaudnorm=f=2.0:p=0.9" -c:a pcm_s16le out2.wav
+0003: ffmpeg -i in3.wav -af "highpass=f=110,lowpass=f=14500,dynaudnorm=f=1.0:p=0.9" -c:a pcm_s16le out3.wav
+0004: ffmpeg -i in4.wav -af "highpass=f=120,lowpass=f=14000,dynaudnorm=f=1.5:p=0.9" -c:a pcm_s16le out4.wav
+0005: ffmpeg -i in5.wav -af "highpass=f=130,lowpass=f=13500,dynaudnorm=f=2.0:p=0.9" -c:a pcm_s16le out5.wav
+... (and so on for 1200 lines)
