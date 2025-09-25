@@ -9,10 +9,8 @@ from .core import (
     AudioFile,
     AudioProcessor,
     FFMPEG,
-    settings_validator_available,
-    validate_settings as external_validate_settings,
 )
-from .utils import PresetManager, AUDIO_EXTS
+from .utils import PresetManager, AUDIO_EXTS, validate_settings
 from .helpers import ensure_eula_accepted
 
 APP_NAME = "Music Forge Pro Max"
@@ -107,27 +105,10 @@ def build_cli_parser() -> argparse.ArgumentParser:
 
 
 def _validate_cli_settings(s: "ProcessingSettings"):
-    if settings_validator_available and external_validate_settings:
-        try:
-            external_validate_settings(s)
-            return
-        except ValueError as e:
-            raise ValueError(f"Settings validation failed: {e}") from e
-
-    # Fallback validation
-    if s.normalize_loudness:
-        if not (-36.0 <= s.target_i <= -8.0):
-            raise ValueError(f"--lufs must be between -36 and -8, got {s.target_i}")
-        if s.target_tp > -1.0:
-            raise ValueError(f"--tp must be ≤ -1.0 dBTP, got {s.target_tp}")
-        if s.target_lra < 0:
-            raise ValueError(f"--lra must be ≥ 0, got {s.target_lra}")
-    if s.bit_depth not in (16, 24, 32):
-        raise ValueError(f"--bit-depth must be 16/24/32, got {s.bit_depth}")
-    if s.sample_rate not in (22050, 32000, 44100, 48000, 88200, 96000):
-        raise ValueError(f"--sr must be a common rate, got {s.sample_rate}")
-    if not (1 <= s.channels <= 8):
-        raise ValueError(f"--ch must be 1..8, got {s.channels}")
+    try:
+        validate_settings(s)
+    except ValueError as e:
+        raise ValueError(f"Settings validation failed: {e}") from e
 
 
 def parse_kv_pairs(pairs: list[str] | None) -> dict[str, str]:

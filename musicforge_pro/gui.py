@@ -243,10 +243,12 @@ if tk_available:
             self.log_text = tk.Text(self.tab_log, wrap="word", height=12); self.log_text.pack(fill="both", expand=True, padx=8, pady=8)
 
         def _wire_events(self):
+            """Wire up all event bindings."""
             self.protocol("WM_DELETE_WINDOW", self._on_quit)
             self.format_combo.bind("<<ComboboxSelected>>", lambda e: self._on_format_changed())
 
         def _load_session(self):
+            """Load settings and window geometry from the last session."""
             s, geo = self.session.load()
             if s:
                 self._apply_settings_to_ui(s)
@@ -258,6 +260,7 @@ if tk_available:
                     pass
 
         def _on_quit(self):
+            """Handle window close event."""
             if any(af.status == ProcessingStatus.PROCESSING for af in self.audio_files):
                 if not messagebox.askyesno("Quit", "Processing is still running. Quit anyway?"):
                     return
@@ -268,6 +271,7 @@ if tk_available:
             self.destroy()
 
         def _log(self, msg: str, level: str = "info"):
+            """Log a message to the GUI and to the log file."""
             self._log_queue.put((level, msg))
             try:
                 with self._log_lock, open(LOG_FILE, "a", encoding="utf-8") as fp:
@@ -277,6 +281,7 @@ if tk_available:
                 pass
 
         def _drain_log_queue(self):
+            """Periodically check for and display new log messages."""
             try:
                 while True:
                     level, msg = self._log_queue.get_nowait()
@@ -290,11 +295,13 @@ if tk_available:
                 self.after(120, self._drain_log_queue)
 
         def _add_files(self):
+            """Open a dialog to add audio files to the queue."""
             types = [("Audio files", "*.wav *.mp3 *.flac *.aac *.m4a *.ogg *.aiff *.wma *.mka *.opus"), ("All files", "*.*")]
             files = filedialog.askopenfilenames(title="Add Audio Files", filetypes=types)
             if files: self._enqueue_files(files)
 
         def _add_folder(self):
+            """Open a dialog to add a folder of audio files to the queue."""
             d = filedialog.askdirectory(title="Add Folder")
             if not d: return
             paths = []
@@ -305,6 +312,7 @@ if tk_available:
             self._enqueue_files(paths)
 
         def _enqueue_files(self, paths: Iterable[str]) -> None:
+            """Add a list of file paths to the processing queue."""
             added = 0
             for p in paths:
                 p = str(Path(p))
@@ -319,6 +327,7 @@ if tk_available:
                 self._log(f"Added {added} file(s) to queue.", "info")
 
         def _add_tree_item(self, af: AudioFile) -> None:
+            """Add a single audio file to the Treeview."""
             self.tree.insert("", "end", iid=af.path, values=(
                 af.format.upper(),
                 f"{af.duration:.1f}" if af.duration else "",
@@ -329,13 +338,15 @@ if tk_available:
             ))
 
         def _clear_queue(self) -> None:
+            """Clear all files from the queue and the Treeview."""
             self.audio_files.clear()
             self.tree.delete(*self.tree.get_children())
             self.progress["value"] = 0
 
         def _start_processing(self) -> None:
-            self._stop_event.clear()
+            """Start the audio processing batch job."""
             self._sync_settings_from_ui()
+            self._stop_event.clear()
 
             if not FFMPEG.is_available():
                 messagebox.showerror("FFmpeg Missing", "FFmpeg/FFprobe not found.\nInstall from https://ffmpeg.org/download.html")
@@ -356,6 +367,7 @@ if tk_available:
             self._log("Started processing.", "info")
 
         def _dispatcher(self) -> None:
+            """Manages the worker pool for processing audio files."""
             work_q: "queue.Queue[AudioFile]" = queue.Queue()
             for af in self.audio_files:
                 work_q.put(af)
@@ -390,6 +402,7 @@ if tk_available:
             self._log("All processing finished.", "info")
 
         def _run_one(self, af: AudioFile) -> None:
+            """Process a single audio file."""
             try:
                 outp = self._output_path_for(af)
                 if outp.exists() and not self.settings.overwrite_existing:
@@ -433,6 +446,7 @@ if tk_available:
                 self._update_tree_row(af)
 
         def _output_path_for(self, af: AudioFile) -> Path:
+            """Determine the output path for a given audio file based on current settings."""
             ext = self.proc.format_to_extension(self.settings.output_format)
             src = Path(af.path)
             placeholders = {
@@ -447,10 +461,12 @@ if tk_available:
             return outdir / fname
 
         def _stop_processing(self) -> None:
+            """Signal all running jobs to stop."""
             self._stop_event.set()
             self._log("Stop requested. Running jobs will finish or cancel shortly.", "warn")
 
         def _update_overall_progress(self, force_done: bool = False) -> None:
+            """Update the main progress bar."""
             total = len(self.audio_files)
             if total == 0:
                 self.progress["value"] = 0; return
@@ -462,10 +478,12 @@ if tk_available:
             self.progress["value"] = min(100.0, pct)
 
         def _show_manual(self):
+            """Show the user manual in a new window."""
             win = tk.Toplevel(self); win.title("User Manual"); win.geometry("900x700")
             txt = tk.Text(win, wrap="word"); txt.pack(fill="both", expand=True); txt.insert("1.0", self.user_manual); txt.config(state="disabled")
 
         def _show_power_guide(self):
+            """Show the power user guide in a new window."""
             win = tk.Toplevel(self); win.title("Power Guide"); win.geometry("900x700")
             txt = tk.Text(win, wrap="word")
             txt.pack(fill="both", expand=True)
@@ -473,25 +491,135 @@ if tk_available:
             txt.config(state="disabled")
 
         def _show_ffmpeg_help(self):
-            pass
+            messagebox.showinfo(
+                "FFmpeg Help",
+                "Music Forge Pro requires FFmpeg to be installed and available in your system's PATH.\n\n"
+                "FFmpeg is a free and open-source software project consisting of a suite of libraries and programs for handling video, audio, and other multimedia files and streams.\n\n"
+                "You can download it from the official website: https://ffmpeg.org/download.html",
+            )
         def _show_downloads(self):
-            pass
+            messagebox.showinfo(
+                "Download Links",
+                f"Get the latest version of Music Forge Pro Max:\n\n"
+                f"Windows: {DOWNLOAD_LINKS['windows']}\n"
+                f"macOS: {DOWNLOAD_LINKS['macos']}\n"
+                f"Linux: {DOWNLOAD_LINKS['linux']}",
+            )
         def _show_about(self):
-            pass
+            from .cli import APP_NAME, APP_VERSION
+
+            messagebox.showinfo(
+                "About",
+                f"{APP_NAME} v{APP_VERSION}\n\n"
+                "A powerful, free, and open-source audio processing tool.\n"
+                "Built with Python, Tkinter, and FFmpeg.",
+            )
         def _check_ffmpeg_dialog(self):
-            pass
+            if FFMPEG.is_available():
+                info = FFMPEG.get_version_info()
+                messagebox.showinfo(
+                    "FFmpeg Status",
+                    f"FFmpeg is available.\n\n"
+                    f"ffmpeg version: {info.get('ffmpeg_version', 'unknown')}\n"
+                    f"ffprobe version: {info.get('ffprobe_version', 'unknown')}",
+                )
+            else:
+                messagebox.showwarning(
+                    "FFmpeg Status",
+                    "FFmpeg not found. Please install it and ensure it is in your system's PATH.",
+                )
         def _startup_ffmpeg_check(self):
-            pass
+            if not FFMPEG.is_available():
+                messagebox.showwarning(
+                    "FFmpeg Not Found",
+                    "FFmpeg is not installed or not in your PATH. The application may not function correctly.",
+                )
         def _check_ffmpeg(self):
-            pass
-        def _apply_settings_to_ui(self, s):
-            pass
+            if FFMPEG.is_available():
+                self.ffmpeg_label.config(text="FFmpeg: OK", foreground="green")
+            else:
+                self.ffmpeg_label.config(text="FFmpeg: Not Found", foreground="red")
+        def _apply_settings_to_ui(self, s: ProcessingSettings):
+            self.output_dir_var.set(s.output_directory or "")
+            self.format_var.set(s.output_format)
+            self.quality_var.set(s.quality)
+            self.bit_depth_var.set(s.bit_depth)
+            self.sample_rate_var.set(s.sample_rate)
+            self.channels_var.set(s.channels)
+            self.normalize_var.set(s.normalize_loudness)
+            self.normalize_mode_var.set(s.normalize_mode)
+            self.target_i_var.set(s.target_i)
+            self.target_tp_var.set(s.target_tp)
+            self.target_lra_var.set(s.target_lra)
+            self.fade_in_var.set(s.fade_in_sec)
+            self.fade_out_var.set(s.fade_out_sec)
+            self.overwrite_var.set(s.overwrite_existing)
+            self.parallelism_var.set(s.parallelism)
+            self.template_var.set(s.filename_template)
+            self.meta_artist.set(s.metadata.artist)
+            self.meta_title.set(s.metadata.title)
+            self.meta_album.set(s.metadata.album)
+            self.meta_year.set(s.metadata.year)
+            self.meta_genre.set(s.metadata.genre)
+            self.meta_comment.set(s.metadata.comment)
         def _save_preset(self):
-            pass
+            self._sync_settings_from_ui()
+            name = filedialog.asksaveasfilename(
+                title="Save Preset",
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json")],
+                initialdir=self.preset_mgr.user_preset_dir,
+            )
+            if name:
+                try:
+                    self.preset_mgr.save_user_preset(Path(name).stem, self.settings)
+                    self._refresh_user_presets()
+                    self._log(f"Saved preset: {Path(name).stem}", "info")
+                except Exception as e:
+                    messagebox.showerror("Preset Error", f"Could not save preset:\n{e}")
         def _load_preset(self):
-            pass
+            name = filedialog.askopenfilename(
+                title="Load Preset",
+                filetypes=[("JSON files", "*.json")],
+                initialdir=self.preset_mgr.user_preset_dir,
+            )
+            if name:
+                try:
+                    s = self.preset_mgr.load_user_preset(Path(name).stem)
+                    self._apply_settings_to_ui(s)
+                    self.settings = s
+                    self._log(f"Loaded preset: {Path(name).stem}", "info")
+                except Exception as e:
+                    messagebox.showerror("Preset Error", f"Could not load preset:\n{e}")
         def _export_report(self):
-            pass
+            path = filedialog.asksaveasfilename(
+                title="Export Report",
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv")],
+            )
+            if not path:
+                return
+            try:
+                with open(path, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(
+                        ["File", "Format", "Size (MB)", "Duration (s)", "Status", "Error", "Output"]
+                    )
+                    for af in self.audio_files:
+                        writer.writerow(
+                            [
+                                af.name,
+                                af.format,
+                                f"{af.size / (1024*1024):.1f}",
+                                f"{af.duration:.1f}" if af.duration else "",
+                                af.status.value,
+                                af.error_message or "",
+                                af.output_path or "",
+                            ]
+                        )
+                self._log(f"Exported report to {path}", "info")
+            except Exception as e:
+                messagebox.showerror("Report Error", f"Could not export report:\n{e}")
         def _update_tree_row(self, af: AudioFile) -> None:
             if self.tree.exists(af.path):
                 self.tree.item(af.path, values=(
@@ -502,6 +630,31 @@ if tk_available:
                     af.error_message or "",
                     af.output_path or "",
                 ))
+        def _sync_settings_from_ui(self):
+            s = self.settings
+            s.output_directory = self.output_dir_var.get() or None
+            s.output_format = self.format_var.get()
+            s.quality = self.quality_var.get()
+            s.bit_depth = self.bit_depth_var.get()
+            s.sample_rate = self.sample_rate_var.get()
+            s.channels = self.channels_var.get()
+            s.normalize_loudness = self.normalize_var.get()
+            s.normalize_mode = self.normalize_mode_var.get()
+            s.target_i = self.target_i_var.get()
+            s.target_tp = self.target_tp_var.get()
+            s.target_lra = self.target_lra_var.get()
+            s.fade_in_sec = self.fade_in_var.get()
+            s.fade_out_sec = self.fade_out_var.get()
+            s.overwrite_existing = self.overwrite_var.get()
+            s.parallelism = self.parallelism_var.get()
+            s.filename_template = self.template_var.get()
+            s.metadata.artist = self.meta_artist.get()
+            s.metadata.title = self.meta_title.get()
+            s.metadata.album = self.meta_album.get()
+            s.metadata.year = self.meta_year.get()
+            s.metadata.genre = self.meta_genre.get()
+            s.metadata.comment = self.meta_comment.get()
+
         def _update_tree_status_text(self, af: AudioFile, text_status: str) -> None:
             if self.tree.exists(af.path):
                 vals = list(self.tree.item(af.path, "values"))
