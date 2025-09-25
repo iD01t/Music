@@ -11,22 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-# Attempt to import the improved runner and validator
-try:
-    from ffmpeg_runner_improved import run_ffmpeg
-
-    ffmpeg_runner_available = True
-except ImportError:
-    run_ffmpeg = None
-    ffmpeg_runner_available = False
-
-try:
-    from settings_validator import validate_settings
-
-    settings_validator_available = True
-except ImportError:
-    validate_settings = None
-    settings_validator_available = False
+from .utils import run_ffmpeg, validate_settings
 
 
 class ProcessingStatus(Enum):
@@ -343,6 +328,8 @@ class AudioProcessor:
         stop_event: Optional[threading.Event] = None,
     ) -> Tuple[bool, Optional[str]]:
         try:
+            validate_settings(s)
+
             if not af.duration or af.duration <= 0:
                 af.duration = FFMPEG.probe_duration(af.path)
 
@@ -362,126 +349,22 @@ class AudioProcessor:
             cmd = self.build_command(af, s, output_path, resolved, measured)
             logging.debug(f"FFmpeg command: {' '.join(cmd)}")
 
-            if ffmpeg_runner_available and run_ffmpeg:
+            def progress_wrapper(percent: Optional[float] = None, **kwargs):
+                if progress_callback and percent is not None:
+                    progress_callback("progress", percent)
 
-                def progress_wrapper(percent: Optional[float] = None, **kwargs):
-                    if progress_callback and percent is not None:
-                        progress_callback("progress", percent)
-
-                rc, _, last = run_ffmpeg(
-                    cmd, on_progress=progress_wrapper, duration_sec=af.duration
-                )
-                return (
-                    rc == 0,
-                    None if rc == 0 else last or f"ffmpeg exited with {rc}",
-                )
-            else:
-                return self._process_file_original(
-                    af, s, output_path, progress_callback, stop_event, cmd
-                )
-        except Exception as e:
-            return False, str(e)
-
-    def _process_file_original(
-        self,
-        af: AudioFile,
-        _s: ProcessingSettings,
-        output_path: Path,
-        progress_callback: Optional[ProgressCallback] = None,
-        stop_event: Optional[threading.Event] = None,
-        cmd: Optional[List[str]] = None,
-    ) -> Tuple[bool, Optional[str]]:
-        """Original process_file implementation as fallback"""
-        try:
-            if cmd is None:
-                return False, "No command provided"
-
-            kwargs: Dict[str, Any] = {}
-            if os.name == "nt":
-                kwargs["creationflags"] = getattr(
-                    subprocess, "CREATE_NEW_PROCESS_GROUP", 0
-                )
-
-            proc = subprocess.Popen(
+            rc, _, stderr = run_ffmpeg(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                universal_newlines=True,
-                **kwargs,
+                on_progress=progress_wrapper,
+                duration_sec=af.duration,
+                stop_event=stop_event,
             )
 
-            out_ms = 0.0
-            speed = 1.0
-
-            while True:
-                if stop_event and stop_event.is_set():
-                    try:
-                        if os.name == "nt":
-                            import ctypes
-
-                            ctypes.windll.kernel32.GenerateConsoleCtrlEvent(1, proc.pid)
-                            try:
-                                proc.wait(timeout=2)
-                            except subprocess.TimeoutExpired:
-                                proc.kill()
-                        else:
-                            proc.send_signal(signal.SIGINT)
-                    except Exception:
-                        try:
-                            proc.terminate()
-                            proc.wait(timeout=1)
-                        except:
-                            proc.kill()
-                    return False, "Cancelled"
-
-                if proc.stdout is None:
-                    break
-                line = proc.stdout.readline()
-                if not line:
-                    if proc.poll() is not None:
-                        break
-                    time.sleep(0.02)
-                    continue
-                line = line.strip()
-                if line.startswith("out_time_ms="):
-                    try:
-                        out_ms = float(line.split("=", 1)[1])
-                        if af.duration and af.duration > 0:
-                            pct = min(
-                                100.0, (out_ms / 1_000_000.0) / af.duration * 100.0
-                            )
-                            if progress_callback:
-                                progress_callback("progress", pct)
-                    except Exception:
-                        pass
-                elif line.startswith("speed="):
-                    try:
-                        speed_str = line.split("=", 1)[1].rstrip("x")
-                        speed = float(speed_str) if speed_str else 1.0
-                        if af.duration and af.duration > 0 and speed > 0 and out_ms > 0:
-                            remaining_time = (
-                                af.duration - (out_ms / 1_000_000.0)
-                            ) / speed
-                            if progress_callback:
-                                progress_callback("eta", remaining_time)
-                    except Exception:
-                        pass
-                elif line.startswith("progress=") and "end" in line:
-                    if progress_callback:
-                        progress_callback("progress", 100.0)
-
-            err = proc.stderr.read().strip() if proc.stderr else ""
-            ret = proc.wait()
-            if ret == 0:
+            if rc == 0:
                 return True, None
+            else:
+                last_line = (stderr.splitlines()[-1] if stderr else "").strip()
+                return False, last_line or f"ffmpeg exited with {rc}"
 
-            stderr_lines = err.splitlines() if err else []
-            last = (stderr_lines[-1] if stderr_lines else "").strip()
-            logging.error(
-                "ffmpeg failed (%s)\nCMD: %s\nLAST: %s", ret, shlex.join(cmd), last
-            )
-            return False, last or f"FFmpeg exited with code {ret}"
         except Exception as e:
             return False, str(e)
